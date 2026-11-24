@@ -38,3 +38,16 @@ export function playlist(x = {}, userId = "") {
     fixed: mine && x.specialType === 5,
   };
 }
+
+export function cloudTrack(x = {}) {
+  const song = x.simpleSong && typeof x.simpleSong === "object" ? x.simpleSong : {};
+  // 云盘编号可能不同于匹配到的公共曲库编号，播放必须保留上传记录的 songId。
+  const songId = [x.songId, song.id].map(sid).find((value) => /^\d+$/.test(value) && !/^0+$/.test(value)) || "";
+  const mapped = track({
+    ...song, id: songId, name: x.songName || song.name || x.fileName,
+    ar: song.ar?.length ? song.ar : song.artists?.length ? song.artists : [{ name: x.artist || t("未知歌手") }],
+    al: { ...(song.al || song.album || {}), name: x.album || song.al?.name || song.album?.name || t("未知专辑"), picUrl: x.cover || song.al?.picUrl || song.album?.picUrl },
+  });
+  // 公共曲库下架不代表用户自己的云盘文件不可播，授权由取播放地址的接口确认。
+  return { ...mapped, unavailable: !songId };
+}

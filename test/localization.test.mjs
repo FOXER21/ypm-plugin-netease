@@ -42,7 +42,7 @@ async function runtime(language = "en") {
     },
     fetch: async (url) => {
       requests.push({ url, payload });
-      const body = env.reply ? env.reply(payload) : env.body ?? (url.includes("/unikey") ? { code: 200, unikey: "fixture-qr" }
+      const body = env.reply ? env.reply(payload, url) : env.body ?? (url.includes("/unikey") ? { code: 200, unikey: "fixture-qr" }
         : url.includes("/client/login") ? { code: -462 } : { code: 200, more: true, playlists: [] });
       return { ok: env.status === 200, status: env.status, headers: { getSetCookie: () => [] }, json: async () => body };
     },
@@ -178,4 +178,76 @@ test("登录失效和网络错误立即报告，不伪装成音质降级", async
   r.requests.length = 0; r.env.status = 503;
   await assert.rejects(r.plugin.stream({ id: "42" }), e => e.retryable === true);
   assert.equal(r.requests.length, 1);
+});
+
+test("云盘要求登录；未登录不请求个人数据", async () => {
+  const r = await runtime("zh-CN");
+  await assert.rejects(r.plugin.browse({ page: "cloud" }), e => e.code === "signIn");
+  assert.equal(r.requests.length, 0);
+});
+
+test("云盘分页保留歌曲编号、元数据和翻页位置", async () => {
+  const r = await runtime("zh-CN");
+  r.store.set("cookies", { MUSIC_U: "fixture" }); r.store.set("account", { id: "42" });
+  r.env.reply = (p, url) => {
+    assert.ok(url.endsWith("/eapi/v1/cloud/get")); assert.equal(p.limit, 50);
+    return { code: 200, count: 100, hasMore: p.offset === 0, data: Array.from({ length: 50 }, (_, i) => ({
+      songId: String(1000 + p.offset + i), songName: "个人上传", artist: "原始歌手", album: "个人专辑", cover: "http://p1.music.126.net/cover.jpg",
+      simpleSong: { id: 1, name: "公共曲库名称", dt: 180000, ar: [{ id: 2, name: "歌手" }], al: { id: 3, name: "专辑" }, privilege: { st: -200 }, noCopyrightRcmd: { type: 1 } },
+    })) };
+  };
+  const page = await r.plugin.browse({ page: "cloud" });
+  assert.equal(page.title, "我的云盘"); assert.equal(page.sections[0].tracks.length, 50);
+  const t = page.sections[0].tracks[0];
+  assert.equal(t.id, "1000"); assert.equal(t.name, "个人上传"); assert.equal(t.duration, 180000); assert.equal(t.unavailable, false);
+  assert.equal(t.album.name, "个人专辑"); assert.equal(t.album.imageUrl, "https://p1.music.126.net/cover.jpg");
+  assert.equal(page.sections[1].links[0].page, "cloud:50");
+  const last = await r.plugin.browse({ page: "cloud:50" });
+  assert.equal(r.requests.at(-1).payload.offset, 50);
+  assert.equal(last.sections[1].links.length, 1); assert.equal(last.sections[1].links[0].page, "cloud:0");
+});
+
+test("云盘原始文件无需公共匹配；缺少编号不允许播放", async () => {
+  const r = await runtime("zh-CN");
+  const t = r.models.cloudTrack({ songId: "900001", fileName: "我的录音.flac", artist: "本人", album: "录音" });
+  assert.equal(t.id, "900001"); assert.equal(t.name, "我的录音.flac"); assert.equal(t.artists[0].name, "本人"); assert.equal(t.unavailable, false);
+  assert.equal(r.models.cloudTrack({ fileName: "无编号文件" }).unavailable, true);
+  r.env.settings.quality = "lossless";
+  r.env.reply = p => { assert.deepEqual(JSON.parse(p.ids), ["900001"]); return { code: 200, data: [{ url: "https://m.music.126.net/private-file", level: "lossless", type: "flac" }] }; };
+  assert.equal((await r.plugin.stream({ id: t.id })).quality, "lossless");
+});
+
+test("空云盘、空末页与缺少 hasMore 时均正确停止分页", async () => {
+  const r = await runtime("zh-CN");
+  r.store.set("cookies", { MUSIC_U: "fixture" }); r.store.set("account", { id: "42" });
+  r.env.body = { code: 200, data: [], count: 0, hasMore: false };
+  const empty = await r.plugin.browse({ page: "cloud" });
+  assert.equal(empty.sections.length, 1); assert.equal(empty.sections[0].tracks.length, 0); assert.equal(empty.sections[0].empty, "云盘中还没有歌曲");
+  r.env.body = { code: 200, data: [], hasMore: true };
+  const last = await r.plugin.browse({ page: "cloud:50" });
+  assert.equal(last.sections[1].links.length, 1); assert.equal(last.sections[1].links[0].title, "上一页");
+  r.env.body = { code: 200, data: [{ songId: 1 }], count: 2 };
+  assert.equal((await r.plugin.browse({ page: "cloud" })).sections[1].links[0].page, "cloud:1");
+});
+
+test("云盘参数和异常响应不会伪装成空音乐库", async () => {
+  const r = await runtime();r.store.set("cookies", { MUSIC_U: "fixture" });r.store.set("account", { id: "42" });
+  for (const page of ["cloud:-1", "cloud:abc", "cloud:9007199254740993", "cloud:0:1"]) await assert.rejects(r.plugin.browse({ page }), e => e.code === "unsupported");
+  assert.equal(r.requests.length, 0);
+  r.env.body = { code: 200, data: {} };
+  await assert.rejects(r.plugin.browse({ page: "cloud" }), e => e.code === "failed");
+  r.env.body = { code: 301 };
+  await assert.rejects(r.plugin.browse({ page: "cloud" }), e => e.code === "signIn");
+});
+
+test("云盘可从发现页进入，新版宿主通过筛选标签翻页", async () => {
+  const r = await runtime("zh-CN");
+  r.env.body = { code: 200, playlists: [], more: false };
+  assert.ok((await r.plugin.browse({})).tabs.some(t => t.page === "cloud" && t.title === "我的云盘"));
+  r.store.set("cookies", { MUSIC_U: "fixture" });r.store.set("account", { id: "42" });
+  r.env.body = { code: 200, data: [{ songId: 123 }], hasMore: true };
+  const page = await r.plugin.browse({ page: "cloud" });
+  assert.equal(page.filters[0][0].page, "cloud:1");
+  assert.ok(page.tabs.some(t => t.page === "cloud" && t.selected));
+  assert.ok(page.tabs.some(t => t.page === ""));
 });

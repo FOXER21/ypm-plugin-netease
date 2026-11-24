@@ -254,6 +254,27 @@ export async function home() {
 }
 
 export async function browse({ page = "" }) {
+  if (page === "cloud" || page.startsWith("cloud:")) {
+    requireAccount();
+    const rawOffset = page === "cloud" ? "0" : page.slice(6);
+    if (!/^\d+$/.test(rawOffset) || !Number.isSafeInteger(Number(rawOffset))) fail("unsupported", "不支持这个发现页面");
+    const offset = Number(rawOffset);
+    const j = await api("/api/v1/cloud/get", { limit: PAGE, offset });
+    if (!Array.isArray(j.data)) fail("failed", "网易云返回了无法识别的响应，请稍后重试");
+    const next = offset + j.data.length;
+    const more = j.data.length > 0 && (j.hasMore == null ? Number(j.count) > next : j.hasMore === true || j.hasMore === 1);
+    const sections = [{ title: t("我的云盘"), tracks: j.data.map((x) => model.cloudTrack(x)), empty: t("云盘中还没有歌曲") }];
+    const links = [];
+    if (offset > 0) links.push({ title: t("上一页"), page: `cloud:${Math.max(0, offset - PAGE)}` });
+    if (more) links.push({ title: t("下一页"), page: `cloud:${next}` });
+    if (links.length) sections.push({ links });
+    return {
+      title: t("我的云盘"), sections,
+      tabs: [{ title: t("热门歌单"), page: "" }, { title: t("我的云盘"), page: "cloud", selected: true }],
+      // 新版宿主的发现页通过 filters 翻页，保留 links 兼容旧版页面。
+      filters: links.length ? [links] : [],
+    };
+  }
   if (page === "daily") {
     requireAccount();
     const j = await api("/api/v3/discovery/recommend/songs", {});
@@ -275,7 +296,7 @@ export async function browse({ page = "" }) {
   if (j.more) sections.push({ links: [{ title: t("下一页"), page: `playlists:${category}:${start + 30}` }] });
   return {
     title: t("热门歌单"), sections,
-    tabs: ["全部", "华语", "欧美", "日语", "韩语", "轻音乐", "古典", "电子"].map((title) => ({ title: t(title), page: `playlists:${title}:0`, selected: title === category })),
+    tabs: [...["全部", "华语", "欧美", "日语", "韩语", "轻音乐", "古典", "电子"].map((title) => ({ title: t(title), page: `playlists:${title}:0`, selected: title === category })), { title: t("我的云盘"), page: "cloud" }],
   };
 }
 
