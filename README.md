@@ -17,13 +17,17 @@ Community NetEase Cloud Music source plugin for [YesPlayMusic](https://github.co
 
 QR sign-in is the only login method. No server, API key, password, or manual Cookie configuration is required. Expired codes refresh automatically; reopening sign-in requests a new code. Sessions are saved locally, and signing out only clears this plugin’s session.
 
+## Sound quality
+
+Choose a quality in Settings → Plugins → NetEase Cloud Music → Settings. Standard, High, Lossless and Hi-Res are available. The plugin selection overrides the player’s default. “Follow player” uses the player’s requested quality, currently High by default. If no full audio is available, the plugin tries lower qualities without using previews. Account, network and sign-in errors are reported normally. Changes apply when a new stream URL is requested; cached audio may keep its previous quality.
+
 ## Features
 
 - Home: recommended playlists, daily recommendations after sign-in, charts, new albums, and playlist categories
 - Search tracks, albums, artists, and playlists, with pagination and search suggestions
 - Album, artist, and playlist pages, with playlist tracks loaded in their original order
 - Liked tracks, saved albums, personal playlists, and recent listening history; like/unlike tracks and save/unsave albums
-- Standard, High, and Lossless playback, subject to account permissions and availability
+- Standard, High, Lossless, and Hi-Res playback, subject to account permissions and availability
 - Synced LRC lyrics and translations when available, plus a track menu shortcut to the NetEase website
 - Automatic QR refresh, retries for temporary connection failures, and protection against outdated sign-in responses
 - Interface translations matching YesPlayMusic: English, Simplified Chinese, Traditional Chinese, Japanese, Korean, French, German, Spanish, and Russian

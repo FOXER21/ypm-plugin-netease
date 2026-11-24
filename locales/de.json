@@ -54,5 +54,12 @@
   "请稍后重试": "Bitte später erneut versuchen",
   "账号歌单数量超过插件当前支持范围": "Dein Konto enthält mehr Playlists als dieses Plugin derzeit unterstützt",
   "轻音乐": "Unterhaltungsmusik",
-  "韩语": "Koreanisch"
+  "韩语": "Koreanisch",
+  "音质": "Audioqualität",
+  "优先使用所选音质，不可用时自动降低": "Gewählte Qualität bevorzugen; bei Nichtverfügbarkeit niedrigere Qualität verwenden",
+  "跟随播放器": "Player folgen",
+  "标准": "Standard",
+  "高音质": "Hohe Qualität",
+  "无损": "Verlustfrei",
+  "Hi-Res": "Hi-Res"
 }

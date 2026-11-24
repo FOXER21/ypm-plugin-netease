@@ -20,16 +20,21 @@ for (const file of ["index.js", "client.js", "models.js"]) {
 sourceKeys.add(manifest.name);
 sourceKeys.add(manifest.description);
 for (const entry of manifest.navigation) if (entry.title) sourceKeys.add(entry.title);
+for (const item of manifest.settings || []) {
+  sourceKeys.add(item.label); if (item.help) sourceKeys.add(item.help);
+  for (const option of item.options || []) sourceKeys.add(option.label);
+}
 
 async function runtime(language = "en") {
   const store = new Map();
   const prompts = [], requests = [];
   let payload;
-  const env = { language, status: 200, body: null };
+  const env = { language, status: 200, body: null, settings: {} };
   const context = vm.createContext({
     URL, URLSearchParams, AbortSignal, console,
     setTimeout: (fn, ms) => setTimeout(fn, Math.min(ms, 1)),
     host: {
+      setting: (key) => env.settings[key] ?? "",
       t: (message) => dictionaries[env.language]?.[message] ?? message,
       storage: { get: (key) => store.get(key), set: (key, value) => store.set(key, value), remove: (key) => store.delete(key) },
       crypto: { md5: () => "fixture", aesEcbEncrypt: (_, text) => { payload = JSON.parse(text.split("-36cd479b6b5-")[1]); return "fixture"; } },
@@ -37,7 +42,7 @@ async function runtime(language = "en") {
     },
     fetch: async (url) => {
       requests.push({ url, payload });
-      const body = env.body ?? (url.includes("/unikey") ? { code: 200, unikey: "fixture-qr" }
+      const body = env.reply ? env.reply(payload) : env.body ?? (url.includes("/unikey") ? { code: 200, unikey: "fixture-qr" }
         : url.includes("/client/login") ? { code: -462 } : { code: 200, more: true, playlists: [] });
       return { ok: env.status === 200, status: env.status, headers: { getSetCookie: () => [] }, json: async () => body };
     },
@@ -137,4 +142,40 @@ test("README 互链、仓库安装地址和许可证一致", () => {
     assert.ok(text.includes("[MIT](LICENSE)"));
   }
   assert.ok(readFileSync(path.join(root, "LICENSE"), "utf8").startsWith("MIT License"));
+});
+
+test("音质设置优先于播放器默认值，空设置跟随播放器", async () => {
+  const levels = { standard: "standard", high: "exhigh", lossless: "lossless", hires: "hires" };
+  for (const [selected, expected] of Object.entries(levels)) {
+    const r = await runtime("zh-CN");
+    r.env.settings.quality = selected;
+    r.env.reply = (payload) => ({ code: 200, data: [{ url: "https://m.music.126.net/fixture", level: payload.level }] });
+    assert.equal((await r.plugin.stream({ id: "42", quality: "high" })).quality, expected);
+    assert.equal(r.requests[0].payload.level, expected);
+  }
+  for (const selected of ["", "invalid"]) {
+    const r = await runtime(); r.env.settings.quality = selected;
+    r.env.reply = (payload) => ({ code: 200, data: [{ url: "https://m.music.126.net/fixture", level: payload.level }] });
+    assert.equal((await r.plugin.stream({ id: "42", quality: "lossless" })).quality, "lossless");
+  }
+});
+
+test("Hi-Res 无完整音频时按序降级，不返回试听，也不向上请求", async () => {
+  const r = await runtime("zh-CN"); r.env.settings.quality = "hires";
+  r.env.reply = (payload) => ({ code: 200, data: [payload.level === "exhigh" ? { url: "https://m.music.126.net/full", level: "exhigh" } : { url: "https://m.music.126.net/preview", freeTrialInfo: { start: 0 } }] });
+  assert.equal((await r.plugin.stream({ id: "42" })).quality, "exhigh");
+  assert.deepEqual(r.requests.map(q => q.payload.level), ["hires", "lossless", "exhigh"]);
+  r.env.settings.quality = "standard"; r.requests.length = 0;
+  await assert.rejects(r.plugin.stream({ id: "42" }), e => e.code === "unavailable");
+  assert.deepEqual(r.requests.map(q => q.payload.level), ["standard"]);
+});
+
+test("登录失效和网络错误立即报告，不伪装成音质降级", async () => {
+  const r = await runtime(); r.env.settings.quality = "hires";
+  r.env.body = { code: 301 };
+  await assert.rejects(r.plugin.stream({ id: "42" }), e => e.code === "signIn");
+  assert.equal(r.requests.length, 1);
+  r.requests.length = 0; r.env.status = 503;
+  await assert.rejects(r.plugin.stream({ id: "42" }), e => e.retryable === true);
+  assert.equal(r.requests.length, 1);
 });

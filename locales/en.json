@@ -54,5 +54,12 @@
   "请稍后重试": "Please try again later",
   "账号歌单数量超过插件当前支持范围": "Your account has more playlists than this plugin currently supports",
   "轻音乐": "Easy listening",
-  "韩语": "Korean"
+  "韩语": "Korean",
+  "音质": "Sound quality",
+  "优先使用所选音质，不可用时自动降低": "Prefer the selected quality; fall back to lower quality when unavailable",
+  "跟随播放器": "Follow player",
+  "标准": "Standard",
+  "高音质": "High",
+  "无损": "Lossless",
+  "Hi-Res": "Hi-Res"
 }
