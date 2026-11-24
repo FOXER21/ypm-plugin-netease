@@ -229,7 +229,8 @@ export async function like({ id: value, on }) {
 export async function savedAlbums({ offset = 0 }) {
   requireAccount();
   const j = await api("/api/album/sublist", { limit: PAGE, offset: offsetOf(offset), total: true });
-  return { albums: (j.data || []).map((x) => ({ ...model.album(x), saved: true })), more: Boolean(j.hasMore) };
+  // 音乐库的原始数据读取路径要求数组；返回空数组时结束分页。
+  return (j.data || []).map((x) => ({ ...model.album(x), saved: true }));
 }
 
 export async function saveAlbum({ id: value, on }) {

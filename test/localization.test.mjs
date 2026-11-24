@@ -53,8 +53,34 @@ async function runtime(language = "en") {
   const main = load(path.join(root, "index.js"));
   await main.link((specifier, ref) => load(path.resolve(path.dirname(ref.identifier), specifier)));
   await main.evaluate();
-  return { env, prompts, requests, plugin: main.namespace, models: modules.get(path.join(root, "models.js")).namespace, i18n: modules.get(path.join(root, "i18n.js")).namespace };
+  return { env, store, prompts, requests, plugin: main.namespace, models: modules.get(path.join(root, "models.js")).namespace, i18n: modules.get(path.join(root, "i18n.js")).namespace };
 }
+
+test("收藏专辑兼容音乐库的数组读取，保留分页参数且空页结束", async () => {
+  const r = await runtime("zh-CN");
+  r.store.set("cookies", { MUSIC_U: "fixture-session" });
+  r.store.set("account", { id: "42", name: "测试用户" });
+  for (const offset of [0, 50]) {
+    r.env.body = { code: 200, hasMore: offset === 0, data: [{
+      id: offset + 1, name: "测试专辑", picUrl: "http://p1.music.126.net/cover.jpg",
+      artists: [{ id: 3, name: "歌手" }], size: 12, publishTime: 1700000000000,
+    }] };
+    const albums = await r.plugin.savedAlbums({ offset });
+    // 播放器音乐库直接按 List 读取，包括 hasMore 为 false 的最后一个非空页。
+    assert.ok(Array.isArray(albums));
+    assert.equal(albums.length, 1);
+    assert.equal(albums[0].id, String(offset + 1));
+    assert.equal(albums[0].saved, true);
+    assert.equal(albums[0].artists[0].name, "歌手");
+    assert.equal(albums[0].imageUrl, "https://p1.music.126.net/cover.jpg");
+    assert.equal(r.requests.at(-1).payload.offset, offset);
+    assert.equal(r.requests.at(-1).payload.limit, 50);
+  }
+  r.env.body = { code: 200, hasMore: false, data: [] };
+  assert.equal((await r.plugin.savedAlbums({ offset: 100 })).length, 0);
+  r.env.body = { code: 200 };
+  assert.ok(Array.isArray(await r.plugin.savedAlbums({ offset: 0 })));
+});
 
 test("九种语言覆盖全部文案，动态占位符保持一致", () => {
   assert.deepEqual(Object.keys(dictionaries).sort(), ["de", "en", "es", "fr", "ja", "ko", "ru", "zh-CN", "zh-TW"].sort());
